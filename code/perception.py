@@ -16,6 +16,33 @@ def color_thresh(img, rgb_thresh=(160, 160, 160)):
     color_select[above_thresh] = 1
     # Return the binary image
     return color_select
+def color_thresh_obstacles(img):
+    
+    imgBGR = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+    # Convert BGR to HSV
+    imgHSV = cv2.cvtColor(imgBGR, cv2.COLOR_BGR2HSV)
+
+    # define range 
+    lower = np.array([0,0,0])
+    upper = np.array([179,255,178])
+    
+    mask = cv2.inRange(imgHSV, lower, upper)
+ 
+    return mask
+
+def color_thresh_rocks(img):
+
+    imgBGR = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+    # Convert BGR to HSV
+    imgHSV = cv2.cvtColor(imgBGR, cv2.COLOR_BGR2HSV)
+
+    # define range of yellow color in HSV
+    lower_yellow = np.array([15,95,128])
+    upper_yellow = np.array([40,255,255])
+    
+    mask = cv2.inRange(imgHSV, lower_yellow, upper_yellow)
+ 
+    return mask
 
 # Define a function to convert from image coords to rover coords
 def rover_coords(binary_img):
@@ -102,7 +129,52 @@ def perception_step(Rover):
     # Update Rover pixel distances and angles
         # Rover.nav_dists = rover_centric_pixel_distances
         # Rover.nav_angles = rover_centric_angles
+    dst_size = 5 
+    bottom_offset = 6
+    #source = np.float32([[14,140],[301,140],[200,96],[118,96]])
+    source = np.float32([[13,140],[306,140],[205,95],[120,95]])
+
+    destination = np.float32([[Rover.img.shape[1]/2 - dst_size, Rover.img.shape[0] - bottom_offset],
+                  [Rover.img.shape[1]/2 + dst_size, Rover.img.shape[0] - bottom_offset],
+                  [Rover.img.shape[1]/2 + dst_size, Rover.img.shape[0] - 2*dst_size - bottom_offset], 
+                  [Rover.img.shape[1]/2 - dst_size, Rover.img.shape[0] - 2*dst_size - bottom_offset],
+                  ])
+
+    pers_trans = perspect_transform(Rover.img, source, destination)
+    terrain_thresh = color_thresh(pers_trans)
+    obstacle_thresh = color_thresh_obstacles(pers_trans)
+    rocks_thresh = color_thresh_rocks(pers_trans)
+
+    '''
+    terrain_thresh = perspect_transform(terrain_thresh1, source, destination)
+    obstacle_thresh = perspect_transform(obstacle_thresh1, source, destination)
+    rocks_thresh = perspect_transform(rocks_thresh1, source, destination)
+    '''
     
+    Rover.vision_image[:,:,0] = obstacle_thresh*255
+    Rover.vision_image[:,:,1] = rocks_thresh*255
+    Rover.vision_image[:,:,2] = terrain_thresh*255
+    
+    terrain_x, terrain_y = rover_coords(terrain_thresh)
+    obstacle_x, obstacle_y = rover_coords(obstacle_thresh)
+    rocks_x, rocks_y = rover_coords(rocks_thresh)
+    
+    obstacle_x_world, obstacle_y_world = pix_to_world(obstacle_x, obstacle_y, Rover.pos[0], 
+                                Rover.pos[1], Rover.yaw, 
+                                Rover.worldmap.shape[0], 10)
+    Rover.worldmap[obstacle_y_world, obstacle_x_world, 0] += 1
+    rocks_x_world, rocks_y_world = pix_to_world(rocks_x, rocks_y,Rover.pos[0], 
+                                Rover.pos[1], Rover.yaw, 
+                                Rover.worldmap.shape[0], 10)
+    Rover.worldmap[rocks_y_world, rocks_x_world, 1] += 100
+    navigable_x_world, navigable_y_world = pix_to_world(terrain_x, terrain_y, Rover.pos[0], 
+                                Rover.pos[1], Rover.yaw, 
+                                Rover.worldmap.shape[0], 10)
+    Rover.worldmap[navigable_y_world, navigable_x_world, 2] += 1
+    
+    dist,angle = to_polar_coords(terrain_x, terrain_y)
+    Rover.nav_dists = dist
+    Rover.nav_angles = angle    
  
     
     
